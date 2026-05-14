@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chainmail Mesh Animation</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { 
+            width: 100%; height: 100%; 
+            background: #ebe9ea; 
+            overflow: hidden;
+        }
+
+        /* Background canvas - must be visible */
+        #bgCanvas { 
+            position: fixed; 
+            top: 0; left: 0; 
+            width: 100%; height: 100%; 
+            z-index: 1;
+            display: block;
+        }
+
+        /* Chat layer - transparent, only shows bubbles */
+        .chat-layer {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            z-index: 2;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 60px 20px 40px;
+            pointer-events: none;
+            background: transparent;
+        }
+
+        .chat-container {
+            width: 100%;
+            max-width: 520px;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+            overflow-y: auto;
+            padding: 0 10px;
+            scrollbar-width: none;
+            background: transparent;
+        }
+        .chat-container::-webkit-scrollbar { display: none; }
+
+        .msg {
+            max-width: 88%;
+            padding: 16px 20px;
+            border-radius: 24px;
+            font-family: "KaiTi", "STKaiti", "楷体", "BiauKai", "AR PL UKai CN", serif;
+            font-size: 16.5px;
+            line-height: 1.7;
+            letter-spacing: 0.6px;
+            opacity: 0;
+            transform: translateY(20px) scale(0.92);
+            transition: all 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+            word-break: break-word;
+            position: relative;
+            pointer-events: auto;
+        }
+
+        .msg.show {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+
+        .msg-left {
+            align-self: flex-start;
+            background: rgba(0, 200, 180, 0.35);
+            backdrop-filter: blur(24px) saturate(1.8);
+            -webkit-backdrop-filter: blur(24px) saturate(1.8);
+            color: #0a3a35;
+            border: 1px solid rgba(255,255,255,0.45);
+            box-shadow: 
+                0 4px 20px rgba(0,200,180,0.12),
+                inset 0 1px 0 rgba(255,255,255,0.5),
+                inset 0 -1px 0 rgba(0,0,0,0.03);
+        }
+
+        .msg-right {
+            align-self: flex-end;
+            background: rgba(255, 100, 130, 0.38);
+            backdrop-filter: blur(24px) saturate(1.8);
+            -webkit-backdrop-filter: blur(24px) saturate(1.8);
+            color: #5a0a1a;
+            text-shadow: 0 1px 1px rgba(255,255,255,0.2);
+            border: 1px solid rgba(255,255,255,0.4);
+            box-shadow: 
+                0 4px 20px rgba(255,100,130,0.14),
+                inset 0 1px 0 rgba(255,255,255,0.45),
+                inset 0 -1px 0 rgba(0,0,0,0.03);
+        }
+
+        .typing {
+            align-self: flex-start;
+            background: rgba(0, 200, 180, 0.35);
+            backdrop-filter: blur(24px) saturate(1.8);
+            -webkit-backdrop-filter: blur(24px) saturate(1.8);
+            border: 1px solid rgba(255,255,255,0.45);
+            padding: 18px 22px;
+            border-radius: 24px;
+            display: flex;
+            gap: 5px;
+            opacity: 0;
+            transform: translateY(10px);
+            transition: all 0.4s ease;
+            box-shadow: 0 4px 20px rgba(0,200,180,0.12);
+            pointer-events: auto;
+        }
+        .typing.show { opacity: 1; transform: translateY(0); }
+        .typing.hide { opacity: 0; transform: translateY(-10px); }
+
+        .typing-dot {
+            width: 8px; height: 8px;
+            background: #0a3a35;
+            border-radius: 50%;
+            animation: typingBounce 1.4s infinite ease-in-out both;
+        }
+        .typing-dot:nth-child(1) { animation-delay: -0.32s; }
+        .typing-dot:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes typingBounce {
+            0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
+            40% { transform: scale(1); opacity: 1; }
+        }
+
+        .bottom-fade {
+            position: fixed;
+            bottom: 0; left: 0;
+            width: 100%; height: 80px;
+            background: linear-gradient(to top, rgba(235,233,234,0.9), transparent);
+            z-index: 3;
+            pointer-events: none;
+        }
+
+        .top-bar {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 50px;
+            background: rgba(235,233,234,0.7);
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            z-index: 3;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-bottom: 1px solid rgba(0,0,0,0.04);
+            pointer-events: none;
+        }
+        .top-bar-text {
+            font-family: "KaiTi", "STKaiti", "楷体", serif;
+            font-size: 18px;
+            font-weight: 600;
+            color: #1a1a1a;
+            letter-spacing: 1px;
+        }
+    </style>
+<base target="_blank">
+</head>
+<body>
+    <canvas id="bgCanvas"></canvas>
+
+    <div class="top-bar">
+        <span class="top-bar-text">Danni</span>
+    </div>
+
+    <div class="chat-layer">
+        <div class="chat-container" id="chatBox"></div>
+    </div>
+
+    <div class="bottom-fade"></div>
+
+<script>
+// ===== BACKGROUND MESH ANIMATION =====
+(function bg() {
+    const canvas = document.getElementById('bgCanvas');
+    const ctx = canvas.getContext('2d');
+    let W, H;
+    function resize() { 
+        W = canvas.width = window.innerWidth; 
+        H = canvas.height = window.innerHeight; 
+    }
+    resize();
+    window.addEventListener('resize', () => { resize(); initMesh(); });
+
+    const C_MESH = '#5B8DB8';
+    const C_BG = '#ebe9ea';
+    const COLS = 58, ROWS = 46;
+    let MW, MH, CW, CH, OX, OY;
+    const K = 0.13, K_SH = 0.065, K_BEND = 0.03, DAMP = 0.96, RET = 0.009, GRAV = 0.028;
+    let pts = [], t = 0, pt = 0, ph = 0, gl = 0, tx = 0, ty = 0, ta = 0;
+
+    class Pt {
+        constructor(c, r, x, y) {
+            this.c = c; this.r = r; this.x = this.ox = x; this.y = this.oy = y;
+            this.vx = 0; this.vy = 0; this.pin = (r === 0);
+        }
+    }
+
+    function initMesh() {
+        pts = [];
+        MW = Math.min(490, W * 0.485);
+        MH = Math.min(405, H * 0.525);
+        OX = (W - MW) / 2;
+        OY = (H - MH) / 2;
+        CW = MW / COLS;
+        CH = MH / ROWS;
+        for (let r = 0; r < ROWS; r++) {
+            for (let c = 0; c < COLS; c++) {
+                const wx = Math.sin(r * 0.62) * 0.9 + Math.sin(c * 0.52) * 0.45;
+                const wy = Math.cos(c * 0.57) * 0.45 + Math.sin(r * 0.42) * 0.32;
+                pts.push(new Pt(c, r, OX + c * CW + wx, OY + r * CH + wy));
+            }
+        }
+    }
+    function gp(c, r) { return (c < 0 || c >= COLS || r < 0 || r >= ROWS) ? null : pts[r * COLS + c]; }
+
+    function physics() {
+        for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS - 1; c++) {
+            const a = gp(c, r), b = gp(c + 1, r);
+            if (!a || !b) continue;
+            const dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+            const f = (d - CW) / d * K, fx = dx * f, fy = dy * f;
+            if (!a.pin) { a.vx += fx; a.vy += fy; }
+            if (!b.pin) { b.vx -= fx; b.vy -= fy; }
+        }
+        for (let r = 0; r < ROWS - 1; r++) for (let c = 0; c < COLS; c++) {
+            const a = gp(c, r), b = gp(c, r + 1);
+            if (!a || !b) continue;
+            const dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+            const f = (d - CH) / d * K, fx = dx * f, fy = dy * f;
+            if (!a.pin) { a.vx += fx; a.vy += fy; }
+            if (!b.pin) { b.vx -= fx; b.vy -= fy; }
+        }
+        for (let r = 0; r < ROWS - 1; r++) for (let c = 0; c < COLS - 1; c++) {
+            const a = gp(c, r), b = gp(c + 1, r + 1);
+            if (!a || !b) continue;
+            const dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+            const tgt = Math.sqrt(CW * CW + CH * CH);
+            const f = (d - tgt) / d * K_SH, fx = dx * f, fy = dy * f;
+            if (!a.pin) { a.vx += fx; a.vy += fy; }
+            if (!b.pin) { b.vx -= fx; b.vy -= fy; }
+        }
+        for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS - 2; c++) {
+            const a = gp(c, r), b = gp(c + 2, r);
+            if (!a || !b) continue;
+            const dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+            const f = (d - CW * 2) / d * K_BEND, fx = dx * f, fy = dy * f;
+            if (!a.pin) { a.vx += fx; a.vy += fy; }
+            if (!b.pin) { b.vx -= fx; b.vy -= fy; }
+        }
+        for (let r = 0; r < ROWS - 2; r++) for (let c = 0; c < COLS; c++) {
+            const a = gp(c, r), b = gp(c, r + 2);
+            if (!a || !b) continue;
+            const dx = b.x - a.x, dy = b.y - a.y, d = Math.sqrt(dx * dx + dy * dy) || 1;
+            const f = (d - CH * 2) / d * K_BEND, fx = dx * f, fy = dy * f;
+            if (!a.pin) { a.vx += fx; a.vy += fy; }
+            if (!b.pin) { b.vx -= fx; b.vy -= fy; }
+        }
+    }
+
+    function invisibleForce() {
+        const ca = Math.cos(ta), sa = Math.sin(ta);
+        const handOffsetY = 65;
+        const handX = tx + 0 * ca - handOffsetY * sa;
+        const handY = ty + 0 * sa + handOffsetY * ca;
+        const hands = [
+            { x: handX - 18, y: handY },
+            { x: handX + 18, y: handY }
+        ];
+        for (let h = 0; h < hands.length; h++) {
+            const hx = hands[h].x, hy = hands[h].y;
+            const catchR = 15, pullR = 26;
+            for (let i = 0; i < pts.length; i++) {
+                const p = pts[i];
+                if (p.pin) continue;
+                const dx = p.x - hx, dy = p.y - hy;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < catchR) {
+                    const f = (catchR - dist) / catchR;
+                    p.vx += ca * f * 2.0; p.vy += sa * f * 2.0;
+                    const pd = ta + Math.PI / 2;
+                    p.vx += Math.cos(pd) * f * 0.9;
+                    p.vy += Math.sin(pd) * f * 0.9;
+                } else if (dist < pullR) {
+                    const f = (pullR - dist) / pullR * 0.18;
+                    p.vx += ca * f * 0.9; p.vy += sa * f * 0.9;
+                }
+            }
+        }
+    }
+
+    function integrate() {
+        for (let i = 0; i < pts.length; i++) {
+            const p = pts[i];
+            if (p.pin) {
+                p.x = p.ox + Math.sin(t * 0.85 + p.c * 0.13) * 0.28;
+                p.y = p.oy + Math.cos(t * 0.65 + p.c * 0.09) * 0.14;
+                continue;
+            }
+            p.vx += (p.ox - p.x) * RET;
+            p.vy += (p.oy - p.y) * RET;
+            p.vy += GRAV;
+            p.vx *= DAMP; p.vy *= DAMP;
+            p.x += p.vx; p.y += p.vy;
+        }
+    }
+
+    function drawLink(x1, y1, x2, y2, alt) {
+        const mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+        const dx = x2 - x1, dy = y2 - y1, d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const bulge = 2.3 * alt;
+        const nx = -dy / d * bulge, ny = dx / d * bulge;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1);
+        ctx.quadraticCurveTo(mx + nx, my + ny, x2, y2);
+        ctx.stroke();
+    }
+
+    function drawMesh() {
+        ctx.strokeStyle = C_MESH;
+        ctx.lineWidth = 0.62;
+        ctx.lineCap = 'round';
+        for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS - 1; c++) {
+            const a = gp(c, r), b = gp(c + 1, r);
+            if (a && b) drawLink(a.x, a.y, b.x, b.y, (r % 2 === 0) ? 1 : -1);
+        }
+        for (let r = 0; r < ROWS - 1; r++) for (let c = 0; c < COLS; c++) {
+            const a = gp(c, r), b = gp(c, r + 1);
+            if (a && b) drawLink(a.x, a.y, b.x, b.y, (c % 2 === 0) ? -1 : 1);
+        }
+    }
+
+    function drawGlitch() {
+        if (gl < 0.005) return;
+        const g = gl;
+        try {
+            const imgData = ctx.getImageData(0, 0, W, H);
+            const d = imgData.data;
+            const tmp = new Uint8ClampedArray(d);
+            const sy = Math.round(g * 10), sp = Math.round(g * 8);
+            for (let y = 0; y < H; y++) {
+                for (let x = 0; x < W; x++) {
+                    const i = (y * W + x) * 4;
+                    const yx = Math.min(x + sy, W - 1), yi = (y * W + yx) * 4;
+                    d[i] = tmp[yi]; d[i + 1] = tmp[yi + 1];
+                    const px = Math.max(x - sp, 0), pi = (y * W + px) * 4;
+                    d[i + 2] = tmp[pi + 2];
+                }
+            }
+            ctx.putImageData(imgData, 0, 0);
+        } catch (e) {}
+        ctx.fillStyle = `rgba(0,0,0,${g * 0.013})`;
+        for (let y = 0; y < H; y += 3) ctx.fillRect(0, y, W, 1);
+    }
+
+    const mT = () => OY, mB = () => OY + MH, mL = () => OX, mR = () => OX + MW;
+    function eoc(t) { return 1 - Math.pow(1 - t, 3); }
+    function eioc(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+
+    function updateForcePath() {
+        const cx = W / 2;
+        switch (ph) {
+            case 0: if (pt > 0.5) { ph = 1; pt = 0; } break;
+            case 1: {
+                const p = Math.min(pt / 0.52, 1), e = eoc(p);
+                tx = (cx + 265) + ((mR() - 20) - (cx + 265)) * e;
+                ty = (mT() - 62) + ((mT() + 62) - (mT() - 62)) * e;
+                ta = -0.46 + (0.08 - (-0.46)) * e;
+                if (p >= 1) { ph = 2; pt = 0; }
+                break;
+            }
+            case 2: {
+                const p = Math.min(pt / 1.45, 1), e = eioc(p);
+                tx = (mR() - 20) + ((mL() + 20) - (mR() - 20)) * e;
+                ty = (mT() + 62) + ((mT() + MH * 0.30) - (mT() + 62)) * e + Math.sin(p * Math.PI) * 10;
+                ta = 0.08 + Math.sin(p * Math.PI) * 0.04;
+                gl = Math.sin(p * Math.PI) * 0.42;
+                if (p >= 1) { ph = 3; pt = 0; gl = 0; }
+                break;
+            }
+            case 3: {
+                const p = Math.min(pt / 0.82, 1), e = eoc(p);
+                tx = (mL() + 20) + 10 * e;
+                ty = (mT() + MH * 0.30) - 165 * e;
+                ta = 0.08 + 0.38 * e;
+                gl = Math.sin(p * Math.PI) * 0.20;
+                if (p >= 1) { ph = 4; pt = 0; gl = 0; }
+                break;
+            }
+            case 4: {
+                const p = Math.min(pt / 1.02, 1), e = eioc(p);
+                tx = (mL() + 30) + ((mR() - 10) - (mL() + 30)) * e;
+                ty = (mT() + MH * 0.30 - 165) + ((mB() - 20) - (mT() + MH * 0.30 - 165)) * e;
+                ta = 0.46 - 0.20 * e;
+                gl = Math.sin(p * Math.PI) * 0.28;
+                if (p >= 1) { ph = 5; pt = 0; gl = 0; }
+                break;
+            }
+            case 5: {
+                const p = Math.min(pt / 0.38, 1), e = eoc(p);
+                tx = tx + 70 * e; ty = ty - 115 * e; ta = ta + 0.20 * e;
+                if (p >= 1) { ph = 6; pt = 0; }
+                break;
+            }
+            case 6: if (pt > 1.5) { ph = 7; pt = 0; } break;
+            case 7: {
+                const p = Math.min(pt / 1.5, 1), e = eoc(p);
+                for (let i = 0; i < pts.length; i++) {
+                    const p_ = pts[i];
+                    if (p_.pin) continue;
+                    p_.vx += (p_.ox - p_.x) * 0.015 * e;
+                    p_.vy += (p_.oy - p_.y) * 0.015 * e;
+                }
+                if (p >= 1) { ph = 8; pt = 0; }
+                break;
+            }
+            case 8:
+                if (pt > 0.32) {
+                    ph = 0; pt = 0;
+                    for (let i = 0; i < pts.length; i++) {
+                        const p_ = pts[i];
+                        p_.x = p_.ox; p_.y = p_.oy; p_.vx = 0; p_.vy = 0;
+                    }
+                }
+                break;
+        }
+    }
+
+    function loop() {
+        t += 0.016; pt += 0.016;
+        ctx.fillStyle = C_BG;
+        ctx.fillRect(0, 0, W, H);
+        physics();
+        invisibleForce();
+        integrate();
+        updateForcePath();
+        drawMesh();
+        drawGlitch();
+        requestAnimationFrame(loop);
+    }
+
+    initMesh();
+    loop();
+})();
+
+// ===== CHAT DIALOGUE ANIMATION =====
+(function chat() {
+    const chatBox = document.getElementById('chatBox');
+
+    const messages = [
+        { side: 'left', text: '没有相关工作经验，我们为什么要你？', slow: false },
+        { side: 'right', text: '这两个行业其实都有个共通性就是：与人建立联系，懂得用户痛点，产出专业内容。并实现转化，提升品牌黏性，进而打造成功案例和产出标杆内容，进一步强化品牌在市场上的影响力。所以该岗位所需要的核心基础能力我都掌握并能够很好的运用，我相信我在新的领域也能发挥出个人最大价值。', slow: true },
+        { side: 'left', text: '你个人有哪些优势？', slow: false },
+        { side: 'right', text: '除了之前5年+所积累的工作经验可以运用到这个领域之外，我也在工作之余也是个自媒体创作者，我对内容传播本身有很强的热爱以及硬核爆款内容的制作能力。并且，我也有多平台的运营经验，有数据驱动的精细化运营思维。相信能给公司创造一定的价值。', slow: true },
+        { side: 'right', text: '期待与大家的进一步沟通与合作！', slow: true }
+    ];
+
+    let msgIndex = 0;
+
+    function createTyping() {
+        const typing = document.createElement('div');
+        typing.className = 'typing';
+        typing.innerHTML = '<div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div>';
+        chatBox.appendChild(typing);
+        typing.offsetHeight;
+        typing.classList.add('show');
+        return typing;
+    }
+
+    function addMessage(msg) {
+        const div = document.createElement('div');
+        div.className = 'msg msg-' + msg.side;
+        div.textContent = msg.text;
+        chatBox.appendChild(div);
+        div.offsetHeight;
+        div.classList.add('show');
+        chatBox.scrollTop = chatBox.scrollHeight;
+    }
+
+    function playSequence() {
+        if (msgIndex >= messages.length) {
+            setTimeout(() => {
+                chatBox.innerHTML = '';
+                msgIndex = 0;
+                setTimeout(playSequence, 1000);
+            }, 5000);
+            return;
+        }
+
+        const msg = messages[msgIndex];
+        const typing = createTyping();
+        chatBox.scrollTop = chatBox.scrollHeight;
+
+        const baseDuration = msg.slow ? 55 : 35;
+        const typingDuration = Math.max(1000, msg.text.length * baseDuration);
+
+        setTimeout(() => {
+            typing.classList.remove('show');
+            typing.classList.add('hide');
+            setTimeout(() => {
+                if (typing.parentNode) typing.parentNode.removeChild(typing);
+                addMessage(msg);
+                msgIndex++;
+                const nextDelay = msg.slow ? 2500 : 1200;
+                setTimeout(playSequence, nextDelay);
+            }, 300);
+        }, typingDuration);
+    }
+
+    setTimeout(playSequence, 1500);
+})();
+</script>
+</body>
+</html>
